@@ -61,17 +61,23 @@ parser.add_argument('--beta', default=0, type=float,
                     help='hyperparameter beta')
 parser.add_argument('--cutmix_prob', default=0, type=float,
                     help='cutmix probability')
+# Add dataset dir path and number of trials
+parser.add_argument('--dataset_dir', default='Data', type=str,
+                    help='The location of the dataset to be explored')
+parser.add_argument('--trials', default=5, type=int,
+                    help='Number of times to run the complete experiment')
 
 parser.set_defaults(bottleneck=True)
 parser.set_defaults(verbose=True)
 
-best_err1 = 100
-best_err5 = 100
-
+args = parser.parse_args()
 
 def main():
-    global args, best_err1, best_err5
-    args = parser.parse_args()
+    global args
+
+    best_err1 = 100
+    best_err5 = 100
+
 
     if args.dataset.startswith('cifar'):
         normalize = transforms.Normalize(mean=[x / 255.0 for x in [125.3, 123.0, 113.9]],
@@ -98,13 +104,15 @@ def main():
                 batch_size=args.batch_size, shuffle=True, num_workers=args.workers, pin_memory=True)
             numberofclass = 100
         elif args.dataset == 'cifar10':
+            trainset = datasets.ImageFolder(os.path.join(args.dataset_dir, 'train'),
+                                          transform_train)
             train_loader = torch.utils.data.DataLoader(
-                datasets.CIFAR10('../data', train=True, download=True, transform=transform_train),
-                batch_size=args.batch_size, shuffle=True, num_workers=args.workers, pin_memory=True)
+                trainset, batch_size=args.batch_size, shuffle=True, num_workers=args.workers)
+            valset = datasets.ImageFolder(os.path.join(args.dataset_dir, 'test'),
+                                          transform_test)
             val_loader = torch.utils.data.DataLoader(
-                datasets.CIFAR10('../data', train=False, transform=transform_test),
-                batch_size=args.batch_size, shuffle=True, num_workers=args.workers, pin_memory=True)
-            numberofclass = 10
+                valset, batch_size=args.batch_size, shuffle=True, num_workers=args.workers)
+            numberofclass = len(trainset.classes)
         else:
             raise Exception('unknown dataset: {}'.format(args.dataset))
 
@@ -155,7 +163,7 @@ def main():
 
     print("=> creating model '{}'".format(args.net_type))
     if args.net_type == 'resnet':
-        model = RN.ResNet(args.dataset, args.depth, numberofclass, args.bottleneck)  # for ResNet
+        model = RN.ResNet18(num_classes = numberofclass)  # for ResNet
     elif args.net_type == 'pyramidnet':
         model = PYRM.PyramidNet(args.dataset, args.depth, args.alpha, numberofclass,
                                 args.bottleneck)
@@ -164,8 +172,8 @@ def main():
 
     model = torch.nn.DataParallel(model).cuda()
 
-    print(model)
-    print('the number of model parameters: {}'.format(sum([p.data.nelement() for p in model.parameters()])))
+    # print(model)
+    # print('the number of model parameters: {}'.format(sum([p.data.nelement() for p in model.parameters()])))
 
     # define loss function (criterion) and optimizer
     criterion = nn.CrossEntropyLoss().cuda()
@@ -181,10 +189,10 @@ def main():
         adjust_learning_rate(optimizer, epoch)
 
         # train for one epoch
-        train_loss = train(train_loader, model, criterion, optimizer, epoch)
+        train_loss, err1, err5, = train(train_loader, model, criterion, optimizer, epoch)
 
         # evaluate on validation set
-        err1, err5, val_loss = validate(val_loader, model, criterion, epoch)
+        # err1, err5, val_loss = validate(val_loader, model, criterion, epoch)
 
         # remember best prec@1 and save checkpoint
         is_best = err1 <= best_err1
@@ -192,7 +200,7 @@ def main():
         if is_best:
             best_err5 = err5
 
-        print('Current best accuracy (top-1 and 5 error):', best_err1, best_err5)
+        # print('Current best accuracy (top-1 and 5 accuracy):', round(100 - best_err1, 3), round(100 - best_err5, 3))
         save_checkpoint({
             'epoch': epoch,
             'arch': args.net_type,
@@ -202,7 +210,10 @@ def main():
             'optimizer': optimizer.state_dict(),
         }, is_best)
 
-    print('Best accuracy (top-1 and 5 error):', best_err1, best_err5)
+        if epoch + 1 == args.epochs:
+            utils.make_prediction(model, valset.classes, val_loader, 'save')
+
+    print('Best accuracy (top-1 and 5 accuracy):', round(100 - best_err1, 3), round(100 - best_err5, 3))
 
 
 def train(train_loader, model, criterion, optimizer, epoch):
@@ -268,12 +279,12 @@ def train(train_loader, model, criterion, optimizer, epoch):
                   'Top 1-err {top1.val:.4f} ({top1.avg:.4f})\t'
                   'Top 5-err {top5.val:.4f} ({top5.avg:.4f})'.format(
                 epoch, args.epochs, i, len(train_loader), LR=current_LR, batch_time=batch_time,
-                data_time=data_time, loss=losses, top1=top1, top5=top5))
+                data_time=data_time, loss=losses, top1=100 - top1, top5=100 - top5))
 
-    print('* Epoch: [{0}/{1}]\t Top 1-err {top1.avg:.3f}  Top 5-err {top5.avg:.3f}\t Train Loss {loss.avg:.3f}'.format(
-        epoch, args.epochs, top1=top1, top5=top5, loss=losses))
+    print('* Epoch: [{0}/{1}]\t Top 1-acc {top1:.3f}  Top 5-acc {top5:.3f}\t Train Loss {loss.avg:.3f}'.format(
+        epoch, args.epochs, top1=(100 - top1.avg), top5=(100 - top5.avg), loss=losses))
 
-    return losses.avg
+    return losses.avg, top1.avg, top5.avg
 
 
 def rand_bbox(size, lam):
@@ -398,12 +409,16 @@ def accuracy(output, target, topk=(1,)):
 
     res = []
     for k in topk:
-        correct_k = correct[:k].view(-1).float().sum(0, keepdim=True)
+        correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True)
         wrong_k = batch_size - correct_k
         res.append(wrong_k.mul_(100.0 / batch_size))
 
     return res
 
 
-if __name__ == '__main__':
+# if __name__ == '__main__':
+#     main()
+for trial in range(args.trials):
+    print("Experiment: ", trial)
+
     main()
