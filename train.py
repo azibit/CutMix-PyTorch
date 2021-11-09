@@ -150,7 +150,7 @@ def main(dataset_dir, iteration, trial):
         # train for one epoch
         train_loss, err1, err5, = train(train_loader, model, criterion, optimizer, epoch)
 
-        evaluate on validation set
+        # evaluate on validation set
         err1, err5, val_loss = validate(val_loader, model, criterion, epoch)
 
         # remember best prec@1 and save checkpoint
