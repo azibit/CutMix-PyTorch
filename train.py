@@ -171,8 +171,8 @@ def main(dataset_dir, iteration, trial):
 
         if epoch + 1 == args.epochs:
             with open(current_dataset_file, 'a') as f:
-                    print("Test result for iteration", iteration, "experiment:", trial, " for dataset ", dataset, file = f)
-                    print(utils.make_prediction(model, valset.classes, val_loader, 'save'), file = f)
+                print("Test result for iteration", iteration, "experiment:", trial, " for dataset ", dataset_dir, file = f)
+                print(utils.make_prediction(model, valset.classes, val_loader, 'save'), file = f)
 
     print('Best accuracy (top-1 and 5 accuracy):', round(100 - best_err1, 3), round(100 - best_err5, 3))
 
@@ -382,6 +382,6 @@ def accuracy(output, target, topk=(1,)):
 for dataset in dataset_list:
     for iteration in range(args.iterations):
         for trial in range(args.trials):
-            print("Experiment: ", trial)
+            print("Iteration ", iteration, "Experiment: ", trial, " Dataset: ", dataset)
 
             main(dataset, iteration, trial)

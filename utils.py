@@ -169,4 +169,4 @@ def make_prediction(net, class_names, loader, name_to_save):
     targets = get_pred_as_list(ground_truths)
     preds = get_pred_as_list(all_preds)
     cm = confusion_matrix(targets, preds)
-    print(classification_report(targets, preds, target_names=class_names))
+    return classification_report(targets, preds, target_names=class_names)
