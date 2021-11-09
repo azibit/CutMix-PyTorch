@@ -66,6 +66,8 @@ parser.add_argument('--dataset_dir', default='Data', type=str,
                     help='The location of the datasets to be explored')
 parser.add_argument('--trials', default=5, type=int,
                     help='Number of times to run the complete experiment')
+parser.add_argument('--iterations', default=2, type=int,
+                    help='Number of times to run the complete experiment')
 
 parser.set_defaults(bottleneck=True)
 parser.set_defaults(verbose=True)
@@ -88,7 +90,7 @@ if len(dataset_list) == 0:
     print("ERROR: 1. Add the Datasets to be run inside of the", args.dataset_dir, "folder")
     sys.exit()
 
-def main(dataset_dir, trial):
+def main(dataset_dir, iteration, trial):
     global args
 
     best_err1 = 100
@@ -169,7 +171,7 @@ def main(dataset_dir, trial):
 
         if epoch + 1 == args.epochs:
             with open(current_dataset_file, 'a') as f:
-                    print("Test result for experiment: ", trial, " for dataset ", dataset, file = f)
+                    print("Test result for iteration", iteration, "experiment:", trial, " for dataset ", dataset, file = f)
                     print(utils.make_prediction(model, valset.classes, val_loader, 'save'), file = f)
 
     print('Best accuracy (top-1 and 5 accuracy):', round(100 - best_err1, 3), round(100 - best_err5, 3))
@@ -378,7 +380,8 @@ def accuracy(output, target, topk=(1,)):
 # if __name__ == '__main__':
 #     main()
 for dataset in dataset_list:
-    for trial in range(args.trials):
-        print("Experiment: ", trial)
+    for iteration in range(args.iterations):
+        for trial in range(args.trials):
+            print("Experiment: ", trial)
 
-        main(dataset, trial)
+            main(dataset, iteration, trial)
