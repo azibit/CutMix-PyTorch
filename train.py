@@ -1,7 +1,7 @@
 # original code: https://github.com/dyhan0920/PyramidNet-PyTorch/blob/master/train.py
 
 import argparse
-import os
+import os, glob
 import shutil
 import time
 
@@ -63,7 +63,7 @@ parser.add_argument('--cutmix_prob', default=0, type=float,
                     help='cutmix probability')
 # Add dataset dir path and number of trials
 parser.add_argument('--dataset_dir', default='Data', type=str,
-                    help='The location of the dataset to be explored')
+                    help='The location of the datasets to be explored')
 parser.add_argument('--trials', default=5, type=int,
                     help='Number of times to run the complete experiment')
 
@@ -72,103 +72,60 @@ parser.set_defaults(verbose=True)
 
 args = parser.parse_args()
 
-def main():
+cudnn.benchmark = True  # Should make training should go faster for large models
+
+torch.manual_seed(123)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed(123)
+
+if not os.path.exists(args.dataset_dir):
+    os.makedirs(args.dataset_dir)
+
+dataset_list = sorted(glob.glob(args.dataset_dir + "/*"))
+print("Dataset List: ", dataset_list)
+
+if len(dataset_list) == 0:
+    print("ERROR: 1. Add the Datasets to be run inside of the", args.dataset_dir, "folder")
+    sys.exit()
+
+def main(dataset_dir, trial):
     global args
 
     best_err1 = 100
     best_err5 = 100
 
+    # 1. Location to save the output for the given dataset
+    current_dataset_file = dataset_dir.split("/")[-1] + '_.txt'
 
-    if args.dataset.startswith('cifar'):
-        normalize = transforms.Normalize(mean=[x / 255.0 for x in [125.3, 123.0, 113.9]],
-                                         std=[x / 255.0 for x in [63.0, 62.1, 66.7]])
+    normalize = transforms.Normalize(mean=[x / 255.0 for x in [125.3, 123.0, 113.9]],
+                                     std=[x / 255.0 for x in [63.0, 62.1, 66.7]])
 
-        transform_train = transforms.Compose([
-            transforms.RandomCrop(32, padding=4),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            normalize,
-        ])
+    transform_train = transforms.Compose([
+        transforms.RandomCrop(32, padding=4),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        normalize,
+    ])
 
-        transform_test = transforms.Compose([
-            transforms.ToTensor(),
-            normalize
-        ])
+    transform_test = transforms.Compose([
+        transforms.ToTensor(),
+        normalize
+    ])
 
-        if args.dataset == 'cifar100':
-            train_loader = torch.utils.data.DataLoader(
-                datasets.CIFAR100('../data', train=True, download=True, transform=transform_train),
-                batch_size=args.batch_size, shuffle=True, num_workers=args.workers, pin_memory=True)
-            val_loader = torch.utils.data.DataLoader(
-                datasets.CIFAR100('../data', train=False, transform=transform_test),
-                batch_size=args.batch_size, shuffle=True, num_workers=args.workers, pin_memory=True)
-            numberofclass = 100
-        elif args.dataset == 'cifar10':
-            trainset = datasets.ImageFolder(os.path.join(args.dataset_dir, 'train'),
-                                          transform_train)
-            train_loader = torch.utils.data.DataLoader(
-                trainset, batch_size=args.batch_size, shuffle=True, num_workers=args.workers)
-            valset = datasets.ImageFolder(os.path.join(args.dataset_dir, 'test'),
-                                          transform_test)
-            val_loader = torch.utils.data.DataLoader(
-                valset, batch_size=args.batch_size, shuffle=True, num_workers=args.workers)
-            numberofclass = len(trainset.classes)
-        else:
-            raise Exception('unknown dataset: {}'.format(args.dataset))
 
-    elif args.dataset == 'imagenet':
-        traindir = os.path.join('/home/data/ILSVRC/train')
-        valdir = os.path.join('/home/data/ILSVRC/val')
-        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                         std=[0.229, 0.224, 0.225])
+    trainset = datasets.ImageFolder(os.path.join(dataset_dir, 'train'),
+                                  transform_train)
+    train_loader = torch.utils.data.DataLoader(
+        trainset, batch_size=args.batch_size, shuffle=True, num_workers=args.workers)
+    valset = datasets.ImageFolder(os.path.join(dataset_dir, 'test'),
+                                  transform_test)
+    val_loader = torch.utils.data.DataLoader(
+        valset, batch_size=args.batch_size, shuffle=True, num_workers=args.workers)
+    numberofclass = len(trainset.classes)
 
-        jittering = utils.ColorJitter(brightness=0.4, contrast=0.4,
-                                      saturation=0.4)
-        lighting = utils.Lighting(alphastd=0.1,
-                                  eigval=[0.2175, 0.0188, 0.0045],
-                                  eigvec=[[-0.5675, 0.7192, 0.4009],
-                                          [-0.5808, -0.0045, -0.8140],
-                                          [-0.5836, -0.6948, 0.4203]])
-
-        train_dataset = datasets.ImageFolder(
-            traindir,
-            transforms.Compose([
-                transforms.RandomResizedCrop(224),
-                transforms.RandomHorizontalFlip(),
-                transforms.ToTensor(),
-                jittering,
-                lighting,
-                normalize,
-            ]))
-
-        train_sampler = None
-
-        train_loader = torch.utils.data.DataLoader(
-            train_dataset, batch_size=args.batch_size, shuffle=(train_sampler is None),
-            num_workers=args.workers, pin_memory=True, sampler=train_sampler)
-
-        val_loader = torch.utils.data.DataLoader(
-            datasets.ImageFolder(valdir, transforms.Compose([
-                transforms.Resize(256),
-                transforms.CenterCrop(224),
-                transforms.ToTensor(),
-                normalize,
-            ])),
-            batch_size=args.batch_size, shuffle=False,
-            num_workers=args.workers, pin_memory=True)
-        numberofclass = 1000
-
-    else:
-        raise Exception('unknown dataset: {}'.format(args.dataset))
 
     print("=> creating model '{}'".format(args.net_type))
-    if args.net_type == 'resnet':
-        model = RN.ResNet18(num_classes = numberofclass)  # for ResNet
-    elif args.net_type == 'pyramidnet':
-        model = PYRM.PyramidNet(args.dataset, args.depth, args.alpha, numberofclass,
-                                args.bottleneck)
-    else:
-        raise Exception('unknown network architecture: {}'.format(args.net_type))
+    model = RN.ResNet18(num_classes = numberofclass)  # for ResNet
 
     model = torch.nn.DataParallel(model).cuda()
 
@@ -191,8 +148,8 @@ def main():
         # train for one epoch
         train_loss, err1, err5, = train(train_loader, model, criterion, optimizer, epoch)
 
-        # evaluate on validation set
-        # err1, err5, val_loss = validate(val_loader, model, criterion, epoch)
+        evaluate on validation set
+        err1, err5, val_loss = validate(val_loader, model, criterion, epoch)
 
         # remember best prec@1 and save checkpoint
         is_best = err1 <= best_err1
@@ -211,7 +168,9 @@ def main():
         }, is_best)
 
         if epoch + 1 == args.epochs:
-            utils.make_prediction(model, valset.classes, val_loader, 'save')
+            with open(current_dataset_file, 'a') as f:
+                    print("Test result for experiment: ", trial, " for dataset ", dataset, file = f)
+                    print(utils.make_prediction(model, valset.classes, val_loader, 'save'), file = f)
 
     print('Best accuracy (top-1 and 5 accuracy):', round(100 - best_err1, 3), round(100 - best_err5, 3))
 
@@ -418,7 +377,8 @@ def accuracy(output, target, topk=(1,)):
 
 # if __name__ == '__main__':
 #     main()
-for trial in range(args.trials):
-    print("Experiment: ", trial)
+for dataset in dataset_list:
+    for trial in range(args.trials):
+        print("Experiment: ", trial)
 
-    main()
+        main(dataset, trial)
