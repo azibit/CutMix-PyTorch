@@ -1,12 +1,10 @@
 # original code: https://github.com/dyhan0920/PyramidNet-PyTorch/blob/master/train.py
 # python train.py --net_type resnet --dataset cifar10  --batch_size 64 --lr 0.1 --beta 1.0 --cutmix_prob 0.5 --no-verbose --epochs 2 --trials=2 --iterations=2 --dataset_dir=../Datasets2 --image_size 224
+# python train.py --net_type resnet --dataset cifar10  --batch_size 64 --lr 0.1
+# --beta 1.0 --cutmix_prob 0.5 --no-verbose --epochs 2 --trials=2 --iterations=2 --dataset_dir=../Datasets2 --image_size 224 -v2 cutmix version 2
 
-import argparse
-import os, glob, sys
-import shutil
-import time
+import argparse, os, glob, sys, shutil, time, torch, csv
 
-import torch
 import torch.nn as nn
 import torch.nn.parallel
 import torch.backends.cudnn as cudnn
@@ -71,6 +69,8 @@ parser.add_argument('--iterations', default=2, type=int,
                     help='Number of times to run the complete experiment')
 parser.add_argument('--image_size', default=32, type=int,
                     help='input image size')
+parser.add_argument('--cutmix_v2', '-v2', action='store_true',
+                    help='Add a version of mixup that uses original dataset')
 
 parser.set_defaults(bottleneck=True)
 parser.set_defaults(verbose=True)
@@ -101,6 +101,7 @@ def main(dataset_dir, iteration, trial):
 
     # 1. Location to save the output for the given dataset
     current_dataset_file = dataset_dir.split("/")[-1] + '_.txt'
+    current_exp = "_ite_" + str(iteration) + "_trial_" + str(trial) + "_dataset_" + dataset_dir.split("/")[-1] + "_"
 
     normalize = transforms.Normalize(mean=[x / 255.0 for x in [125.3, 123.0, 113.9]],
                                      std=[x / 255.0 for x in [63.0, 62.1, 66.7]])
@@ -139,6 +140,17 @@ def main(dataset_dir, iteration, trial):
 
     model = torch.nn.DataParallel(model).cuda()
 
+    results = "results_" + dataset_dir.split("/")[-1]
+    if not os.path.isdir(results):
+        os.mkdir(results)
+    logname = (results + '/log_' + current_exp + '_.csv')
+
+    if not os.path.exists(logname):
+        with open(logname, 'w') as logfile:
+            logwriter = csv.writer(logfile, delimiter=',')
+            logwriter.writerow(['epoch', 'train loss', 'train acc',
+                                'test loss', 'test acc'])
+
     # print(model)
     # print('the number of model parameters: {}'.format(sum([p.data.nelement() for p in model.parameters()])))
 
@@ -156,10 +168,14 @@ def main(dataset_dir, iteration, trial):
         adjust_learning_rate(optimizer, epoch)
 
         # train for one epoch
-        train_loss, err1, err5, = train(train_loader, model, criterion, optimizer, epoch)
+        train_loss, train_err1, train_err5, = train(train_loader, model, criterion, optimizer, epoch)
 
         # evaluate on validation set
         err1, err5, val_loss = validate(val_loader, model, criterion, epoch)
+
+        with open(logname, 'a') as logfile:
+            logwriter = csv.writer(logfile, delimiter=',')
+            logwriter.writerow([epoch, train_loss, 100 - train_err1, val_loss, 100 - err1])
 
         # remember best prec@1 and save checkpoint
         is_best = err1 <= best_err1
@@ -167,24 +183,27 @@ def main(dataset_dir, iteration, trial):
         if is_best:
             best_err5 = err5
 
-        # print('Current best accuracy (top-1 and 5 accuracy):', round(100 - best_err1, 3), round(100 - best_err5, 3))
-        save_checkpoint({
-            'epoch': epoch,
-            'arch': args.net_type,
-            'state_dict': model.state_dict(),
-            'best_err1': best_err1,
-            'best_err5': best_err5,
-            'optimizer': optimizer.state_dict(),
-        }, is_best)
+            print('Current best accuracy (top-1 and 5 accuracy):', round(100 - best_err1, 3), round(100 - best_err5, 3))
+            save_checkpoint({
+                'epoch': epoch,
+                'arch': args.net_type,
+                'state_dict': model.state_dict(),
+                'best_err1': best_err1,
+                'best_err5': best_err5,
+                'optimizer': optimizer.state_dict(),
+            }, is_best, current_exp)
 
         if epoch + 1 == args.epochs:
             with open(current_dataset_file, 'a') as f:
                 # Test for the result of the best model
-                checkpoint = torch.load('runs/%s/' % (args.expname) + 'model_best.pth.tar')
+                checkpoint = torch.load('runs/%s/' % (args.expname) + current_exp + 'model_best.pth.tar')
                 model.load_state_dict(checkpoint['state_dict'])
 
                 print("Test result for iteration", iteration, "experiment:", trial, " for dataset ", dataset_dir, file = f)
                 print(utils.make_prediction(model, valset.classes, val_loader, 'save'), file = f)
+
+                print("Train result for iteration", iteration, "experiment:", trial, " for dataset ", dataset_dir, file = f)
+                print(utils.make_prediction(model, valset.classes, train_loader, 'save'), file = f)
 
     print('Best accuracy (top-1 and 5 accuracy):', round(100 - best_err1, 3), round(100 - best_err5, 3))
 
@@ -210,6 +229,13 @@ def train(train_loader, model, criterion, optimizer, epoch):
 
         r = np.random.rand(1)
         if args.beta > 0 and r < args.cutmix_prob:
+
+            loss = 0
+            if args.cutmix_v2:
+                # compute output
+                output = model(input)
+                loss = criterion(output, target)
+
             # generate mixed sample
             lam = np.random.beta(args.beta, args.beta)
             rand_index = torch.randperm(input.size()[0]).cuda()
@@ -221,7 +247,7 @@ def train(train_loader, model, criterion, optimizer, epoch):
             lam = 1 - ((bbx2 - bbx1) * (bby2 - bby1) / (input.size()[-1] * input.size()[-2]))
             # compute output
             output = model(input)
-            loss = criterion(output, target_a) * lam + criterion(output, target_b) * (1. - lam)
+            loss += criterion(output, target_a) * lam + criterion(output, target_b) * (1. - lam)
         else:
             # compute output
             output = model(input)
@@ -249,8 +275,8 @@ def train(train_loader, model, criterion, optimizer, epoch):
                   'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                   'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
                   'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
-                  'Top 1-err {top1.val:.4f} ({top1.avg:.4f})\t'
-                  'Top 5-err {top5.val:.4f} ({top5.avg:.4f})'.format(
+                  'Top 1-acc {top1.val:.4f} ({top1.avg:.4f})\t'
+                  'Top 5-acc {top5.val:.4f} ({top5.avg:.4f})'.format(
                 epoch, args.epochs, i, len(train_loader), LR=current_LR, batch_time=batch_time,
                 data_time=data_time, loss=losses, top1=100 - top1, top5=100 - top5))
 
@@ -311,24 +337,24 @@ def validate(val_loader, model, criterion, epoch):
             print('Test (on val set): [{0}/{1}][{2}/{3}]\t'
                   'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
                   'Loss {loss.val:.4f} ({loss.avg:.4f})\t'
-                  'Top 1-err {top1.val:.4f} ({top1.avg:.4f})\t'
-                  'Top 5-err {top5.val:.4f} ({top5.avg:.4f})'.format(
+                  'Top 1-acc {top1.val:.4f} ({top1.avg:.4f})\t'
+                  'Top 5-acc {top5.val:.4f} ({top5.avg:.4f})'.format(
                 epoch, args.epochs, i, len(val_loader), batch_time=batch_time, loss=losses,
                 top1=top1, top5=top5))
 
-    print('* Epoch: [{0}/{1}]\t Top 1-err {top1.avg:.3f}  Top 5-err {top5.avg:.3f}\t Test Loss {loss.avg:.3f}'.format(
-        epoch, args.epochs, top1=top1, top5=top5, loss=losses))
+    print('* Epoch: [{0}/{1}]\t Top 1-acc {top1.avg:.3f}  Top 5-acc {top5.avg:.3f}\t Test Loss {loss.avg:.3f}'.format(
+        epoch, args.epochs, top1=100 - top1, top5=100 - top5, loss=losses))
     return top1.avg, top5.avg, losses.avg
 
 
-def save_checkpoint(state, is_best, filename='checkpoint.pth.tar'):
+def save_checkpoint(state, is_best, current_exp, filename='checkpoint.pth.tar'):
     directory = "runs/%s/" % (args.expname)
     if not os.path.exists(directory):
         os.makedirs(directory)
-    filename = directory + filename
+    filename = directory + current_exp + filename
     torch.save(state, filename)
     if is_best:
-        shutil.copyfile(filename, 'runs/%s/' % (args.expname) + 'model_best.pth.tar')
+        shutil.copyfile(filename, 'runs/%s/' % (args.expname) + current_exp + 'model_best.pth.tar')
 
 
 class AverageMeter(object):
