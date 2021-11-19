@@ -342,8 +342,8 @@ def validate(val_loader, model, criterion, epoch):
                 epoch, args.epochs, i, len(val_loader), batch_time=batch_time, loss=losses,
                 top1=top1, top5=top5))
 
-    print('* Epoch: [{0}/{1}]\t Top 1-acc {top1.avg:.3f}  Top 5-acc {top5.avg:.3f}\t Test Loss {loss.avg:.3f}'.format(
-        epoch, args.epochs, top1=100 - top1, top5=100 - top5, loss=losses))
+    print('* Epoch: [{0}/{1}]\t Top 1-acc {top1:.3f}  Top 5-acc {top5:.3f}\t Test Loss {loss.avg:.3f}'.format(
+        epoch, args.epochs, top1=(100 - top1.avg), top5=(100 - top5.avg), loss=losses))
     return top1.avg, top5.avg, losses.avg
 
 
