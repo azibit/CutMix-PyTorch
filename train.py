@@ -68,6 +68,8 @@ parser.add_argument('--trials', default=5, type=int,
                     help='Number of times to run the complete experiment')
 parser.add_argument('--iterations', default=2, type=int,
                     help='Number of times to run the complete experiment')
+parser.add_argument('--image_size', default=32, type=int,
+                    help='input image size')
 
 parser.set_defaults(bottleneck=True)
 parser.set_defaults(verbose=True)
@@ -103,7 +105,7 @@ def main(dataset_dir, iteration, trial):
                                      std=[x / 255.0 for x in [63.0, 62.1, 66.7]])
 
     transform_train = transforms.Compose([
-        transforms.RandomCrop(32, padding=4),
+        transforms.RandomCrop(args.image_size, padding=4),
         transforms.RandomHorizontalFlip(),
         transforms.ToTensor(),
         normalize,
@@ -127,7 +129,15 @@ def main(dataset_dir, iteration, trial):
 
 
     print("=> creating model '{}'".format(args.net_type))
-    model = RN.ResNet18(num_classes = numberofclass)  # for ResNet
+    # model =
+    net = model.densenet161()
+    net.classifier = nn.Linear(net.classifier.in_features, len(testset.classes))
+
+    if args.image_size == 32:
+        model = RN.ResNet18(num_classes = numberofclass)  # for ResNet
+    else:
+        model = model.densenet161()
+        model.classifier = nn.Linear(model.classifier.in_features, len(trainset.classes))
 
     model = torch.nn.DataParallel(model).cuda()
 
@@ -171,6 +181,10 @@ def main(dataset_dir, iteration, trial):
 
         if epoch + 1 == args.epochs:
             with open(current_dataset_file, 'a') as f:
+                # Test for the result of the best model
+                checkpoint = torch.load('runs/%s/' % (args.expname) + 'model_best.pth.tar')
+                model.load_state_dict(checkpoint['state_dict'])
+
                 print("Test result for iteration", iteration, "experiment:", trial, " for dataset ", dataset_dir, file = f)
                 print(utils.make_prediction(model, valset.classes, val_loader, 'save'), file = f)
 
