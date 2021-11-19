@@ -1,4 +1,5 @@
 # original code: https://github.com/dyhan0920/PyramidNet-PyTorch/blob/master/train.py
+# python train.py --net_type resnet --dataset cifar10  --batch_size 64 --lr 0.1 --beta 1.0 --cutmix_prob 0.5 --no-verbose --epochs 2 --trials=2 --iterations=2 --dataset_dir=../Datasets2 --image_size 224
 
 import argparse
 import os, glob, sys
@@ -129,14 +130,11 @@ def main(dataset_dir, iteration, trial):
 
 
     print("=> creating model '{}'".format(args.net_type))
-    # model =
-    net = model.densenet161()
-    net.classifier = nn.Linear(net.classifier.in_features, len(testset.classes))
 
     if args.image_size == 32:
         model = RN.ResNet18(num_classes = numberofclass)  # for ResNet
     else:
-        model = model.densenet161()
+        model = models.densenet161()
         model.classifier = nn.Linear(model.classifier.in_features, len(trainset.classes))
 
     model = torch.nn.DataParallel(model).cuda()
