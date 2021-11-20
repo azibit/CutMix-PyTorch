@@ -230,7 +230,7 @@ def train(train_loader, model, criterion, optimizer, epoch):
         r = np.random.rand(1)
         if args.beta > 0 and r < args.cutmix_prob:
 
-            loss = 0
+
             if args.cutmix_v2:
                 # compute output
                 output = model(input)
@@ -247,7 +247,10 @@ def train(train_loader, model, criterion, optimizer, epoch):
             lam = 1 - ((bbx2 - bbx1) * (bby2 - bby1) / (input.size()[-1] * input.size()[-2]))
             # compute output
             output = model(input)
-            loss += criterion(output, target_a) * lam + criterion(output, target_b) * (1. - lam)
+            if args.cutmix_v2:
+                loss += criterion(output, target_a) * lam + criterion(output, target_b) * (1. - lam)
+            else:
+                loss = criterion(output, target_a) * lam + criterion(output, target_b) * (1. - lam)
         else:
             # compute output
             output = model(input)
