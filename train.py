@@ -244,11 +244,11 @@ def train(train_loader, model, criterion, optimizer, epoch):
             target_a = target
             target_b = target[rand_index]
             bbx1, bby1, bbx2, bby2 = rand_bbox(input.size(), lam)
-            input[:, :, bbx1:bbx2, bby1:bby2] = input[rand_index, :, bbx1:bbx2, bby1:bby2]
+            X = input[rand_index, :, bbx1:bbx2, bby1:bby2]
             # adjust lambda to exactly match pixel ratio
             lam = 1 - ((bbx2 - bbx1) * (bby2 - bby1) / (input.size()[-1] * input.size()[-2]))
             # compute output
-            output = model(input)
+            output = model(X)
             if args.cutmix_v2:
                 loss = criterion(output, target_a) * lam + criterion(output, target_b) * (1. - lam) + criterion(output1, target)
             else:
