@@ -227,13 +227,15 @@ def train(train_loader, model, criterion, optimizer, epoch):
         input = input.cuda()
         target = target.cuda()
 
+        X = input.cuda()
+
         r = np.random.rand(1)
         if args.beta > 0 and r < args.cutmix_prob:
 
 
             if args.cutmix_v2:
                 # compute output
-                output1 = model(input)
+                output1 = model(X)
                 # loss = criterion(output, target)
 
             # generate mixed sample
@@ -268,7 +270,7 @@ def train(train_loader, model, criterion, optimizer, epoch):
         loss.backward()
         optimizer.step()
 
-        # measure elapsed time
+        # measure elapsed timeinput
         batch_time.update(time.time() - end)
         end = time.time()
 
