@@ -233,8 +233,8 @@ def train(train_loader, model, criterion, optimizer, epoch):
 
             if args.cutmix_v2:
                 # compute output
-                output = model(input)
-                loss = criterion(output, target)
+                output1 = model(input)
+                # loss = criterion(output, target)
 
             # generate mixed sample
             lam = np.random.beta(args.beta, args.beta)
@@ -248,7 +248,7 @@ def train(train_loader, model, criterion, optimizer, epoch):
             # compute output
             output = model(input)
             if args.cutmix_v2:
-                loss += criterion(output, target_a) * lam + criterion(output, target_b) * (1. - lam)
+                loss = criterion(output, target_a) * lam + criterion(output, target_b) * (1. - lam) + criterion(output1, target)
             else:
                 loss = criterion(output, target_a) * lam + criterion(output, target_b) * (1. - lam)
         else:
